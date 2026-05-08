@@ -1,0 +1,41 @@
+# =============================================================================
+# rust-core — нативное ядро Death (физика/ECS/pathfinding/scripting hooks).
+#
+# Stage 1: skeleton с двумя JNI-экспортами (nativeInit / nativeShutdown).
+#          На стадии 2 расширяется на физику и ECS.
+#
+# Артефакт: cdylib (libdeath_native.so / death_native.dll / libdeath_native.dylib).
+# =============================================================================
+
+[package]
+name        = "death-native"
+version     = "0.0.0"
+edition     = "2021"
+description = "Native core for Death (Java JNI bridge)"
+license     = "Proprietary"
+publish     = false
+
+[lib]
+name       = "death_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jni        = { version = "0.21", default-features = false }
+log        = "0.4"
+# Stage 2.5: минимальная физика. f32 точность достаточно (нет double-precision требований).
+# Без feature "simd-stable"/"simd-nightly" чтобы держать сборку быстрой и переносимой.
+rapier3d   = { version = "0.21", default-features = false, features = ["dim3", "f32"] }
+nalgebra   = { version = "0.32", default-features = false }
+
+[profile.release]
+opt-level         = 3
+lto               = "thin"
+codegen-units     = 1
+panic             = "abort"
+strip             = "symbols"
+overflow-checks   = false
+
+[profile.dev]
+opt-level         = 0
+debug             = true
+overflow-checks   = true

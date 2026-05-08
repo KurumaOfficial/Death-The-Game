@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Death — Android manifest, stage 1 placeholder.
+
+    На стадии 2:
+      - убрать xmlns:tools="..." заглушку и заполнить реально;
+      - добавить <activity> для DeathActivity с MAIN/LAUNCHER;
+      - выставить minSdkVersion / targetSdkVersion;
+      - добавить permissions (например, INTERNET если будет онлайн).
+
+    Этот файл намеренно содержит минимальный валидный package, чтобы
+    при включении модуля (-PenableAndroid=true) Android Gradle Plugin
+    мог отрапортовать "INTEGRATION_MISSING" по конкретным компонентам
+    вместо падения на parse error.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="WeTTeA.platform.android">
+
+    <!--
+        Stage 1 placeholder: реальный <application> блок появится на стадии 2.
+        Сейчас — пустой контейнер для прохождения парсера.
+    -->
+    <application
+        android:label="Death"
+        android:allowBackup="true">
+        <!-- INTEGRATION_MISSING: DeathActivity, intent-filter, theme. -->
+    </application>
+
+</manifest>

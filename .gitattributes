@@ -1,0 +1,60 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# JVM / Java
+*.java       text eol=lf
+*.kt         text eol=lf
+*.kts        text eol=lf
+*.gradle     text eol=lf
+*.properties text eol=lf
+
+# Rust
+*.rs         text eol=lf
+*.toml       text eol=lf
+
+# Шейдеры — текстовые
+*.vert       text eol=lf
+*.frag       text eol=lf
+*.comp       text eol=lf
+*.glsl       text eol=lf
+*.tesc       text eol=lf
+*.tese       text eol=lf
+*.geom       text eol=lf
+
+# Скрипты
+*.sh         text eol=lf
+*.bat        text eol=crlf
+gradlew      text eol=lf
+gradlew.bat  text eol=crlf
+
+# Документация
+*.md         text eol=lf
+*.txt        text eol=lf
+
+# Бинарные ассеты (не diff'им)
+*.glb        binary
+*.gltf       binary
+*.png        binary
+*.jpg        binary
+*.jpeg       binary
+*.tga        binary
+*.dds        binary
+*.ktx        binary
+*.ktx2       binary
+*.bmp        binary
+*.ogg        binary
+*.wav        binary
+*.mp3        binary
+*.flac       binary
+*.spv        binary
+*.jar        binary
+*.so         binary
+*.dll        binary
+*.dylib      binary
+*.lib        binary
+*.a          binary
+*.dex        binary
+*.apk        binary
+*.aab        binary
+*.ipa        binary
+*.zip        binary

@@ -1,0 +1,124 @@
+# =============================================================================
+# Death — Gradle Version Catalog
+#
+# Единая точка фиксации версий всех зависимостей и плагинов проекта.
+# Используется во всех модулях через alias из libs.*.
+#
+# Источники:
+#   - LWJGL 3.3.6 — https://github.com/LWJGL/lwjgl3/releases (актуальная стабильная)
+#   - JOML 1.10.8 — https://github.com/JOML-CI/JOML/releases (актуальная стабильная)
+#   - JUnit 5.11.4 — https://github.com/junit-team/junit5/releases
+#   - SLF4J 2.0.16 + Logback 1.5.12 — стабильные релизы
+#   - Android Gradle Plugin 8.7.x — для mobile сборки
+#   - RoboVM 2.3.20 — для iOS (статус: ASSUMPTION, требует верификации
+#     совместимости с JDK 21 на стадии :ios bring-up)
+# =============================================================================
+
+[versions]
+
+# -- JVM toolchain --
+jdk          = "21"
+
+# -- Kotlin (только для Gradle DSL и Android-плагина, не runtime) --
+kotlin       = "2.0.21"
+
+# -- LWJGL 3 (Vulkan, GLFW, OpenAL, Assimp, STB) --
+lwjgl        = "3.3.6"
+
+# -- JOML (математика, GLSL-совместимая) --
+joml         = "1.10.8"
+
+# -- Логирование --
+slf4j        = "2.0.16"
+logback      = "1.5.12"
+
+# -- JSON для data-driven контента (диалоги, баланс, локализация) --
+jackson      = "2.18.2"
+
+# -- Тесты --
+junit        = "5.11.4"
+assertj      = "3.26.3"
+
+# -- Mobile platforms --
+agp          = "8.7.3"          # Android Gradle Plugin
+android-min  = "28"             # API 28 — минимум для Vulkan на Android
+android-tgt  = "35"
+robovm       = "2.3.20"         # iOS — ASSUMPTION
+
+[libraries]
+
+# ---------- LWJGL 3 — основной модуль ----------
+lwjgl                       = { module = "org.lwjgl:lwjgl",                version.ref = "lwjgl" }
+lwjgl-glfw                  = { module = "org.lwjgl:lwjgl-glfw",           version.ref = "lwjgl" }
+lwjgl-vulkan                = { module = "org.lwjgl:lwjgl-vulkan",         version.ref = "lwjgl" }
+lwjgl-openal                = { module = "org.lwjgl:lwjgl-openal",         version.ref = "lwjgl" }
+lwjgl-assimp                = { module = "org.lwjgl:lwjgl-assimp",         version.ref = "lwjgl" }
+lwjgl-stb                   = { module = "org.lwjgl:lwjgl-stb",            version.ref = "lwjgl" }
+lwjgl-shaderc               = { module = "org.lwjgl:lwjgl-shaderc",        version.ref = "lwjgl" }
+
+# ---------- LWJGL 3 — нативные библиотеки (classifier добавляется в build.gradle.kts) ----------
+lwjgl-natives               = { module = "org.lwjgl:lwjgl",                version.ref = "lwjgl" }
+lwjgl-glfw-natives          = { module = "org.lwjgl:lwjgl-glfw",           version.ref = "lwjgl" }
+lwjgl-openal-natives        = { module = "org.lwjgl:lwjgl-openal",         version.ref = "lwjgl" }
+lwjgl-assimp-natives        = { module = "org.lwjgl:lwjgl-assimp",         version.ref = "lwjgl" }
+lwjgl-stb-natives           = { module = "org.lwjgl:lwjgl-stb",            version.ref = "lwjgl" }
+lwjgl-shaderc-natives       = { module = "org.lwjgl:lwjgl-shaderc",        version.ref = "lwjgl" }
+# Vulkan: на Linux/Windows нативник не нужен (используется системный loader),
+# на macOS — поставляется MoltenVK как natives-macos.
+lwjgl-vulkan-natives        = { module = "org.lwjgl:lwjgl-vulkan",         version.ref = "lwjgl" }
+
+# ---------- JOML ----------
+joml                        = { module = "org.joml:joml",                  version.ref = "joml" }
+
+# ---------- Логирование ----------
+slf4j-api                   = { module = "org.slf4j:slf4j-api",            version.ref = "slf4j" }
+logback-classic             = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+
+# ---------- Jackson (JSON для data-driven контента) ----------
+jackson-core                = { module = "com.fasterxml.jackson.core:jackson-core",                          version.ref = "jackson" }
+jackson-databind            = { module = "com.fasterxml.jackson.core:jackson-databind",                      version.ref = "jackson" }
+jackson-annotations         = { module = "com.fasterxml.jackson.core:jackson-annotations",                   version.ref = "jackson" }
+
+# ---------- Тесты ----------
+junit-bom                   = { module = "org.junit:junit-bom",            version.ref = "junit" }
+junit-jupiter               = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher     = { module = "org.junit.platform:junit-platform-launcher" }
+assertj                     = { module = "org.assertj:assertj-core",       version.ref = "assertj" }
+
+[bundles]
+
+lwjgl-jvm = [
+    "lwjgl",
+    "lwjgl-glfw",
+    "lwjgl-vulkan",
+    "lwjgl-openal",
+    "lwjgl-assimp",
+    "lwjgl-stb",
+    "lwjgl-shaderc",
+]
+
+lwjgl-natives-all = [
+    "lwjgl-natives",
+    "lwjgl-glfw-natives",
+    "lwjgl-openal-natives",
+    "lwjgl-assimp-natives",
+    "lwjgl-stb-natives",
+    "lwjgl-shaderc-natives",
+]
+
+logging = [
+    "slf4j-api",
+    "logback-classic",
+]
+
+jackson = [
+    "jackson-core",
+    "jackson-databind",
+    "jackson-annotations",
+]
+
+[plugins]
+
+# Android Gradle Plugin (применяется только в :android при enableAndroid=true)
+android-application = { id = "com.android.application",            version.ref = "agp" }
+kotlin-android      = { id = "org.jetbrains.kotlin.android",       version.ref = "kotlin" }
