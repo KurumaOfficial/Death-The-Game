@@ -2,8 +2,12 @@ package WeTTeA.platform.desktop;
 
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWErrorCallback;
+import org.lwjgl.glfw.GLFWFramebufferSizeCallback;
 import org.lwjgl.glfw.GLFWVidMode;
 import org.lwjgl.system.MemoryUtil;
+
+import java.util.Objects;
+import java.util.function.IntBinaryOperator;
 
 /**
  * Тонкая обёртка над GLFW окном.
@@ -32,6 +36,7 @@ public final class GlfwWindow {
     private final String title;
     private long handle = MemoryUtil.NULL;
     private GLFWErrorCallback errorCallback;
+    private GLFWFramebufferSizeCallback framebufferSizeCallback;
 
     public GlfwWindow(int width, int height, String title) {
         if (width <= 0 || height <= 0) {
@@ -85,11 +90,44 @@ public final class GlfwWindow {
         GLFW.glfwPollEvents();
     }
 
+    /**
+     * Stage 2.1b — подписывает listener на изменение размера framebuffer'а.
+     *
+     * <p>{@link GLFWFramebufferSizeCallback} вызывается из GLFW main thread'а
+     * в момент {@code glfwPollEvents()} при ресайзе/maximize/restore окна.
+     * Не вызывается при минимизации (Vulkan-spec: extent 0×0 не валиден).
+     *
+     * <p>Callback регистрируется в GLFW ровно один раз; повторные вызовы
+     * заменяют старый listener (LWJGL выполняет free() предыдущего callback'а
+     * внутри setFramebufferSizeCallback). Поэтому мы сами освобождаем
+     * старый callback перед регистрацией нового.
+     *
+     * @param listener функция (newWidth, newHeight) → игнорируемый int (лямбда
+     *                 типа {@link IntBinaryOperator} без lambda-зависимости от GLFW)
+     */
+    public void setFramebufferSizeListener(IntBinaryOperator listener) {
+        Objects.requireNonNull(listener, "listener");
+        if (handle == MemoryUtil.NULL) {
+            throw new IllegalStateException("setFramebufferSizeListener вызван до init()");
+        }
+        if (framebufferSizeCallback != null) {
+            framebufferSizeCallback.free();
+        }
+        framebufferSizeCallback = GLFWFramebufferSizeCallback.create((win, w, h) -> {
+            listener.applyAsInt(w, h);
+        });
+        GLFW.glfwSetFramebufferSizeCallback(handle, framebufferSizeCallback);
+    }
+
     public long handle() {
         return handle;
     }
 
     public void dispose() {
+        if (framebufferSizeCallback != null) {
+            framebufferSizeCallback.free();
+            framebufferSizeCallback = null;
+        }
         if (handle != MemoryUtil.NULL) {
             GLFW.glfwDestroyWindow(handle);
             handle = MemoryUtil.NULL;

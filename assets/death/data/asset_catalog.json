@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "comment": "Death asset catalog. Source of truth для всех asset id → relative path. Парсится JsonAssetCatalog (см. WeTTeA.core.content.JsonAssetCatalog). path относителен корня assets/death/ (на desktop — classpath /assets/death/, на Android — assets/death/, на iOS — bundle Resources/assets/death/).",
+  "assets": [
+    {
+      "id":       "audio.test.sine_440_short",
+      "category": "AUDIO",
+      "path":     "audio/test/sine_440_short.ogg",
+      "comment":  "Stage 2.3b smoke OGG (0.2s 440Hz моно, libvorbis q=2)."
+    },
+    {
+      "id":       "shader.triangle.vert",
+      "category": "SHADER_SPIRV",
+      "path":     "shaders/triangle/triangle.vert.spv",
+      "comment":  "Stage 2.1b vertex shader: hard-coded triangle через gl_VertexIndex + UV."
+    },
+    {
+      "id":       "shader.triangle.frag",
+      "category": "SHADER_SPIRV",
+      "path":     "shaders/triangle/triangle.frag.spv",
+      "comment":  "Stage 2.1b/3.1 fragment shader: sample texture by UV * vertex color (mix)."
+    },
+    {
+      "id":       "texture.test.checkerboard",
+      "category": "TEXTURE",
+      "path":     "textures/test/checkerboard.png",
+      "comment":  "Stage 3.1 smoke texture: 64×64 RGBA8 шахматка 8×8 блоков (cyan/magenta), без alpha."
+    }
+  ]
+}

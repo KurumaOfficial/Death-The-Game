@@ -35,7 +35,7 @@ public final class VulkanFrameSync {
     private final long[] imageAvailable;
     private final long[] renderFinished;
     private final long[] inFlight;
-    private final long[] imagesInFlight;
+    private long[] imagesInFlight;  // не-final: может быть resized на swapchain recreate (см. resizeImagesInFlight)
 
     public VulkanFrameSync(VulkanDevice device, int framesInFlight, int swapchainImages) {
         this.device         = device;
@@ -78,6 +78,27 @@ public final class VulkanFrameSync {
     public void setImageInFlight(int imageIndex, long fence)  { imagesInFlight[imageIndex] = fence; }
 
     public int framesInFlight() { return inFlight.length; }
+    public int swapchainImages() { return imagesInFlight.length; }
+
+    /**
+     * Stage 2.1b — сбросить буфер {@code imagesInFlight} под новый размер
+     * swapchain'а после {@link VulkanSwapchain#recreate()}. Никаких fence'ов
+     * у этого массива не своих (он хранит ссылки на fence'ы из
+     * {@code inFlight}, которые переживают recreate), поэтому просто выделяем
+     * новый массив, заполненный {@code VK_NULL_HANDLE}.
+     */
+    public void resizeImagesInFlight(int newSwapchainImages) {
+        if (newSwapchainImages == imagesInFlight.length) {
+            for (int i = 0; i < imagesInFlight.length; i++) imagesInFlight[i] = VK10.VK_NULL_HANDLE;
+            return;
+        }
+        long[] resized = new long[newSwapchainImages];
+        // все инициализированы VK_NULL_HANDLE по default'у long[] = 0
+        // явно для ясности:
+        for (int i = 0; i < resized.length; i++) resized[i] = VK10.VK_NULL_HANDLE;
+        // reflective переприсвоение final’а не делаем — массив сделаем не-finalовым
+        imagesInFlight = resized;
+    }
 
     public void dispose() {
         if (device.logical() == null) return;

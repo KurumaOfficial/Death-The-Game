@@ -46,8 +46,14 @@ import java.nio.LongBuffer;
  * (тип {@code 2D}, color aspect, без mipmap/array). Эти views используются
  * как color attachment'ы во framebuffer'ах ({@link VulkanFramebuffers}).
  *
- * <p>Recreate-on-resize пока не реализован — окно у нас фиксированного
- * размера для 2.1a smoke. Hook на ресайз оставлен на 2.1b.
+ * <p><b>Recreate-on-resize (2.1b).</b> {@link #recreate()} перезапускает
+ * {@link #create()} поверх живого {@link VulkanDevice} и {@code VkSurfaceKHR}:
+ * сначала уничтожает старые image views и {@code VkSwapchainKHR},
+ * затем заново выбирает {@code surfaceFormat / presentMode / extent}
+ * (extent читается из {@link GLFW#glfwGetFramebufferSize(long, int[], int[])},
+ * поэтому новый размер окна автоматически подхватывается). Caller обязан
+ * перед вызовом {@link #recreate()} сделать {@code vkDeviceWaitIdle}
+ * и пересоздать {@link VulkanFramebuffers}, привязанные к старым views.
  *
  * @author Kuruma
  * @since 0.1.0
@@ -69,6 +75,27 @@ public final class VulkanSwapchain {
         this.device       = device;
         this.surface      = surface;
         this.windowHandle = windowHandle;
+        create();
+    }
+
+    /**
+     * Stage 2.1b — пересоздать swapchain и его image views на месте.
+     *
+     * <p>Вызывается из {@link VulkanRenderer} после получения
+     * {@code VK_ERROR_OUT_OF_DATE_KHR} / {@code VK_SUBOPTIMAL_KHR} или
+     * dirty-flag'а от GLFW framebuffer-size callback'а. Caller гарантирует,
+     * что перед вызовом был сделан {@code vkDeviceWaitIdle}, поэтому
+     * безопасно уничтожать старые ресурсы без ожидания GPU.
+     *
+     * <p>{@link #imageFormat()} остаётся прежним (формат attachment'а
+     * {@link VulkanRenderPass} не меняется), но {@link #width()} /
+     * {@link #height()} обновляются. {@link #imageCount()} в общем случае
+     * может измениться (драйвер вправе изменить minImageCount под новый
+     * extent), поэтому caller должен ресайзнуть {@link VulkanFrameSync}'s
+     * imagesInFlight.
+     */
+    public void recreate() {
+        disposeImagesAndChain();
         create();
     }
 
@@ -222,6 +249,10 @@ public final class VulkanSwapchain {
     public int    height()        { return height; }
 
     public void dispose() {
+        disposeImagesAndChain();
+    }
+
+    private void disposeImagesAndChain() {
         if (device.logical() == null) return;
         for (long view : imageViews) {
             if (view != VK10.VK_NULL_HANDLE) {
