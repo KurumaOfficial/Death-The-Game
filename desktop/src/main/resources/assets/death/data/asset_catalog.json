@@ -12,19 +12,31 @@
       "id":       "shader.triangle.vert",
       "category": "SHADER_SPIRV",
       "path":     "shaders/triangle/triangle.vert.spv",
-      "comment":  "Stage 2.1b vertex shader: hard-coded triangle через gl_VertexIndex + UV."
+      "comment":  "Stage 2.1b vertex shader: hard-coded triangle через gl_VertexIndex + UV. Сохранён для regression smoke / документации; в активном render-path'е E.1 не используется (там cube)."
     },
     {
       "id":       "shader.triangle.frag",
       "category": "SHADER_SPIRV",
       "path":     "shaders/triangle/triangle.frag.spv",
-      "comment":  "Stage 2.1b/3.1 fragment shader: sample texture by UV * vertex color (mix)."
+      "comment":  "Stage 2.1b/3.1 fragment shader: sample texture by UV * vertex color (mix). Сохранён для regression smoke / документации."
+    },
+    {
+      "id":       "shader.cube.vert",
+      "category": "SHADER_SPIRV",
+      "path":     "shaders/cube/cube.vert.spv",
+      "comment":  "Stage E.1 vertex shader: vec3 pos + vec3 normal + vec2 uv → MVP из UBO (set=0/binding=0)."
+    },
+    {
+      "id":       "shader.cube.frag",
+      "category": "SHADER_SPIRV",
+      "path":     "shaders/cube/cube.frag.spv",
+      "comment":  "Stage E.1 fragment shader: Lambertian diffuse от directional-light'а в UBO + albedo sampler (set=0/binding=1)."
     },
     {
       "id":       "texture.test.checkerboard",
       "category": "TEXTURE",
       "path":     "textures/test/checkerboard.png",
-      "comment":  "Stage 3.1 smoke texture: 64×64 RGBA8 шахматка 8×8 блоков (cyan/magenta), без alpha."
+      "comment":  "Stage 3.1 smoke texture: 64×64 RGBA8 шахматка 8×8 блоков (cyan/magenta), без alpha. На E.1 переиспользуется как albedo куба."
     }
   ]
 }

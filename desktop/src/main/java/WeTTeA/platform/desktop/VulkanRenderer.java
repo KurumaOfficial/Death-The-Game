@@ -3,6 +3,10 @@ package WeTTeA.platform.desktop;
 import WeTTeA.api.content.AssetCategory;
 import WeTTeA.api.content.AssetHandle;
 import WeTTeA.api.content.ContentLoader;
+import WeTTeA.api.render.Camera;
+import WeTTeA.core.render.PerspectiveCamera;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.system.MemoryStack;
@@ -24,45 +28,49 @@ import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 
 /**
- * Stage 2.1a/2.1b/3.1 — оркестратор Vulkan render-loop.
+ * Stage 2.1a/2.1b/3.1 + E.1 — оркестратор Vulkan render-loop.
  *
- * <p>Владеет всеми Vulkan ресурсами рендера: {@link VulkanSurface},
- * {@link VulkanDevice}, {@link VulkanSwapchain}, {@link VulkanRenderPass},
- * {@link VulkanFramebuffers}, {@link VulkanCommandBuffers},
- * {@link VulkanFrameSync}; на 2.1b — ещё двумя {@link VulkanShaderModule}
- * (vert + frag) и {@link VulkanPipeline} (graphics pipeline для триангла);
- * на 3.1 — {@link VulkanTextureDescriptors} (общий layout + pool) и
- * {@link VulkanTexture} (image + sampler + descriptor set, одной checkerboard-
- * текстурой). Создаются в конструкторе, освобождаются в
- * {@link #dispose()} в обратном порядке.
+ * <p>На stage E.1 ренедерер расширен под полноценный 3D pipeline:
  *
- * <p>{@link #renderFrame(double)} — единственный «горячий» метод,
- * вызываемый каждый кадр из main loop:
+ * <ul>
+ *   <li><b>Camera</b> — внешний контракт {@link Camera}; рендерер только
+ *       читает {@link Camera#viewProjectionMatrix()} и зовёт
+ *       {@link Camera#updateAspect(int, int)} на recreate. Контроль
+ *       камеры (orbit / mouse-look) в gameplay-слое.</li>
+ *   <li><b>Depth buffer</b> — {@link VulkanDepthBuffer} (D32_SFLOAT по
+ *       умолчанию), recreate-on-resize вместе со swapchain'ом.</li>
+ *   <li><b>Mesh</b> — {@link VulkanMeshBuffer} с единичным кубом из
+ *       {@link WeTTeA.core.render.CubeMeshFactory} (24 vertex + 36 index
+ *       в DEVICE_LOCAL).</li>
+ *   <li><b>UBO[N]</b> — {@link VulkanUniformBuffer} один на каждый
+ *       frame slot ({@value #MAX_FRAMES_IN_FLIGHT} штук). Записывается
+ *       host-side {@code (model, viewProj, lightDir)} перед каждым
+ *       submit'ом.</li>
+ *   <li><b>Descriptors</b> — {@link VulkanSceneDescriptors} (UBO@0 +
+ *       sampler@1). На init'е аллоцируется N descriptor set'ов; в каждый
+ *       пишется свой UBO + общая текстура.</li>
+ *   <li><b>Pipeline</b> — vertex bindings (pos+normal+uv), depth test
+ *       LESS, BACK culling, dynamic viewport+scissor.</li>
+ * </ul>
+ *
+ * <p><b>renderFrame()</b> алгоритм (E.1):
  * <ol>
- *   <li>Проверяем dirty-flag от GLFW framebuffer-size callback'а
- *       ({@link #markFramebufferResized()}); если флаг выставлен — выполняем
- *       {@link #recreateSwapchainAndFramebuffers()} ДО acquire (иначе vkAcquire
- *       вернёт OUT_OF_DATE и потеряем кадр).</li>
- *   <li>Ждём fence слота {@code currentFrame}.</li>
- *   <li>{@code vkAcquireNextImageKHR} с semaphore {@code imageAvailable}.
- *       Если возвращает {@code OUT_OF_DATE_KHR} — recreate и пропуск кадра.</li>
- *   <li>Если этот image уже использует другой frame slot — ждём его fence.</li>
- *   <li>Ресет fence слота, ресет cmd buffer'а, запись:
- *       {@code beginRenderPass} (clear color вычисляется из {@code timeSeconds})
- *       → {@code cmdSetViewport}+{@code cmdSetScissor} (динамический state) →
- *       {@code cmdBindPipeline}+{@code cmdDraw(3,1,0,0)} (триангл из 2.1b) →
- *       {@code endRenderPass}.</li>
- *   <li>{@code vkQueueSubmit} с wait на {@code imageAvailable}, signal
- *       {@code renderFinished} + fence {@code inFlight}.</li>
- *   <li>{@code vkQueuePresentKHR} с wait на {@code renderFinished}.
- *       {@code OUT_OF_DATE_KHR}/{@code SUBOPTIMAL_KHR} триггерят recreate.</li>
- *   <li>{@code currentFrame = (currentFrame + 1) % framesInFlight}.</li>
+ *   <li>Если выставлен resize-flag — recreate swapchain+depth+framebuffers
+ *       + camera.updateAspect.</li>
+ *   <li>Wait fence currentFrame.</li>
+ *   <li>vkAcquireNextImageKHR.</li>
+ *   <li>Wait imageInFlight (если нужно), reset fence, reset cmd.</li>
+ *   <li>Считаем model матрицу (вращение куба от t).</li>
+ *   <li>{@code ubo[currentFrame].update(model, camera, lightDir)}.</li>
+ *   <li>record(): clear color (HSV-волна) + clear depth (1.0) →
+ *       cmdSetViewport+Scissor → bindPipeline →
+ *       bindVertexBuffer+bindIndexBuffer → bindDescriptorSet[currentFrame] →
+ *       cmdDrawIndexed(36).</li>
+ *   <li>Submit + present.</li>
+ *   <li>currentFrame = (currentFrame+1) % N.</li>
  * </ol>
  *
- * <p>Clear color циклирует HSV-волной по {@code timeSeconds} — даёт
- * визуально читаемое доказательство, что render-loop реально дошёл до
- * GPU и презентация сработала. Триангл (RGB-градиент top→bottom-right→bottom-left)
- * рисуется поверх clear-color и доказывает работоспособность shader stage'ей.
+ * <p>Идемпотентный {@link #dispose()} в обратном порядке создания.
  *
  * @author Kuruma
  * @since 0.1.0
@@ -72,94 +80,110 @@ public final class VulkanRenderer {
     /** Количество кадров «в полёте» одновременно — типовое значение для double-buffering CPU↔GPU. */
     public static final int MAX_FRAMES_IN_FLIGHT = 2;
 
-    private static final String SHADER_VERT_ID  = "shader.triangle.vert";
-    private static final String SHADER_FRAG_ID  = "shader.triangle.frag";
+    private static final String SHADER_VERT_ID  = "shader.cube.vert";
+    private static final String SHADER_FRAG_ID  = "shader.cube.frag";
     private static final String TEXTURE_TEST_ID = "texture.test.checkerboard";
 
-    /** Capacity descriptor pool'а под текстуры. На 3.1 хватит одной, но берём запас на 3.x. */
-    private static final int TEXTURE_POOL_CAPACITY = 4;
-
     private final long windowHandle;
+    private final Camera camera;
     private final VulkanSurface       surface;
     private final VulkanDevice        device;
     private final VulkanSwapchain     swapchain;
+    private final VulkanDepthBuffer   depthBuffer;
     private final VulkanRenderPass    renderPass;
     private final VulkanFramebuffers  framebuffers;
     private final VulkanCommandBuffers commandBuffers;
     private final VulkanFrameSync     sync;
-    private final VulkanShaderModule       triangleVert;
-    private final VulkanShaderModule       triangleFrag;
-    private final VulkanTextureDescriptors textureDescriptors;
-    private final VulkanTexture            triangleTexture;
-    private final VulkanPipeline           trianglePipeline;
+    private final VulkanSceneDescriptors sceneDescriptors;
+    private final VulkanShaderModule cubeVert;
+    private final VulkanShaderModule cubeFrag;
+    private final VulkanTexture      cubeTexture;
+    private final VulkanMeshBuffer   cubeMesh;
+    private final VulkanUniformBuffer[] uniformBuffers;
+    private final long[]             frameDescriptorSets;
+    private final VulkanPipeline     cubePipeline;
+
+    private final Matrix4f scratchModel = new Matrix4f();
+    private final Vector3f lightDir     = new Vector3f(-0.4f, -1.0f, -0.6f).normalize();
 
     private int currentFrame = 0;
     private int presentedFrames = 0;
     private int swapchainRecreates = 0;
     private volatile boolean framebufferResized = false;
 
-    public VulkanRenderer(VkInstance instance, long windowHandle,
+    public VulkanRenderer(VkInstance instance, long windowHandle, Camera camera,
                           ContentLoader contentLoader, PngImageDecoder pngDecoder) {
         this.windowHandle   = windowHandle;
+        this.camera         = camera;
         this.surface        = new VulkanSurface(instance, windowHandle);
         this.device         = new VulkanDevice(instance, surface.handle());
         this.device.pick();
         this.device.createLogical();
         this.swapchain      = new VulkanSwapchain(device, surface.handle(), windowHandle);
-        this.renderPass     = new VulkanRenderPass(device, swapchain.imageFormat());
-        this.framebuffers   = new VulkanFramebuffers(device, swapchain, renderPass);
+        this.depthBuffer    = new VulkanDepthBuffer(device, swapchain.width(), swapchain.height());
+        this.renderPass     = new VulkanRenderPass(device, swapchain.imageFormat(), depthBuffer.format());
+        this.framebuffers   = new VulkanFramebuffers(device, swapchain, renderPass, depthBuffer);
         this.commandBuffers = new VulkanCommandBuffers(device, MAX_FRAMES_IN_FLIGHT);
         this.sync           = new VulkanFrameSync(device, MAX_FRAMES_IN_FLIGHT, swapchain.imageCount());
 
-        // Stage 3.1 — общий layout + pool descriptor set'ов под текстуры.
-        this.textureDescriptors = new VulkanTextureDescriptors(device, TEXTURE_POOL_CAPACITY);
+        // Stage E.1 — descriptor layout/pool под scene.
+        this.sceneDescriptors = new VulkanSceneDescriptors(device, MAX_FRAMES_IN_FLIGHT);
 
-        // Stage 2.1b — shader modules + graphics pipeline для триангла.
-        this.triangleVert = new VulkanShaderModule(device, contentLoader,
-                new AssetHandle(SHADER_VERT_ID, AssetCategory.SHADER_SPIRV), "triangle.vert");
-        this.triangleFrag = new VulkanShaderModule(device, contentLoader,
-                new AssetHandle(SHADER_FRAG_ID, AssetCategory.SHADER_SPIRV), "triangle.frag");
-        this.trianglePipeline = new VulkanPipeline(device, renderPass,
-                triangleVert, triangleFrag, textureDescriptors.descriptorSetLayout());
+        // Stage E.1 — shader modules + graphics pipeline для куба.
+        this.cubeVert = new VulkanShaderModule(device, contentLoader,
+                new AssetHandle(SHADER_VERT_ID, AssetCategory.SHADER_SPIRV), "cube.vert");
+        this.cubeFrag = new VulkanShaderModule(device, contentLoader,
+                new AssetHandle(SHADER_FRAG_ID, AssetCategory.SHADER_SPIRV), "cube.frag");
+        this.cubePipeline = new VulkanPipeline(device, renderPass,
+                cubeVert, cubeFrag, sceneDescriptors.descriptorSetLayout());
 
-        // Stage 3.1 — загружаем текстуру (PNG → staging → VkImage → descriptor set).
-        this.triangleTexture = VulkanTexture.fromAsset(device, commandBuffers,
-                textureDescriptors, pngDecoder, contentLoader,
+        // Stage E.1 — загружаем checkerboard как albedo для куба.
+        this.cubeTexture = VulkanTexture.fromAsset(device, commandBuffers,
+                pngDecoder, contentLoader,
                 new AssetHandle(TEXTURE_TEST_ID, AssetCategory.TEXTURE),
                 "checkerboard");
+
+        // Stage E.1 — mesh + UBOs + descriptor sets.
+        this.cubeMesh = VulkanMeshBuffer.fromCubeMesh(device, commandBuffers);
+
+        this.uniformBuffers = new VulkanUniformBuffer[MAX_FRAMES_IN_FLIGHT];
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            uniformBuffers[i] = new VulkanUniformBuffer(device);
+        }
+
+        this.frameDescriptorSets = sceneDescriptors.allocateSets(MAX_FRAMES_IN_FLIGHT);
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            sceneDescriptors.writeFrameSet(
+                    frameDescriptorSets[i],
+                    uniformBuffers[i].handle(),
+                    uniformBuffers[i].sizeBytes(),
+                    cubeTexture.imageView(),
+                    cubeTexture.samplerHandle());
+        }
+
+        // Camera учится знать своё разрешение. На E.2 мы перенесём это в
+        // gameplay-слой; на E.1 рендерер прокидывает aspect ratio сам.
+        camera.updateAspect(swapchain.width(), swapchain.height());
+
+        System.out.println("[Death:desktop] Vulkan renderer ready (stage E.1: cube + camera + depth, "
+                + "framesInFlight=" + MAX_FRAMES_IN_FLIGHT + ")");
     }
 
     /**
-     * Stage 2.1b — flag, выставляемый GLFW framebuffer-size callback'ом
-     * (см. {@link DesktopLauncher}). Render loop проверяет его в начале
-     * каждого кадра и форсит recreate swapchain'а ДО acquire'а.
-     *
-     * <p>Volatile, потому что callback теоретически может быть вызван
-     * не из main thread'а (на текущем GLFW поведении — main, но flag
-     * volatile для будущей мульти-thread'овой модели и для memory barrier'а
-     * между callback'ом и render loop'ом).
+     * Stage 2.1b — flag, выставляемый GLFW framebuffer-size callback'ом.
      */
     public void markFramebufferResized() {
         framebufferResized = true;
     }
 
     /**
-     * Презентует один кадр с цикл-цветом, зависящим от {@code timeSeconds},
-     * и нарисованным поверх триангл'ом. На stage 2.1b возвращает {@code true}
-     * всегда, кроме случая когда вышестоящий код решил остановить рендер
-     * (например, fatal Vulkan error). OUT_OF_DATE/SUBOPTIMAL/resize обрабатываются
-     * внутри: каждый из этих сценариев вызывает {@link #recreateSwapchainAndFramebuffers()}
-     * и пропускает текущий кадр (caller просто продолжает loop).
-     *
-     * <p>Если окно минимизировано (extent 0×0), recreate откладывается до
-     * восстановления; кадры в это время «съедаются» (return true без present'а).
+     * Презентует один кадр с вращающимся кубом.
      */
     public boolean renderFrame(double timeSeconds) {
-        // Stage 2.1b — пред-кадровый recreate, если callback пометил окно ресайзнутым.
         if (framebufferResized) {
             framebufferResized = false;
             if (!recreateSwapchainAndFramebuffers()) {
-                return true; // окно минимизировано — пропускаем кадр
+                return true;
             }
         }
 
@@ -180,14 +204,13 @@ public final class VulkanRenderer {
                     pImageIndex);
             if (acquireResult == KHRSwapchain.VK_ERROR_OUT_OF_DATE_KHR) {
                 recreateSwapchainAndFramebuffers();
-                return true; // skip frame, на следующем тике re-acquire'нем
+                return true;
             }
             if (acquireResult != VK10.VK_SUCCESS && acquireResult != KHRSwapchain.VK_SUBOPTIMAL_KHR) {
                 throw new IllegalStateException("vkAcquireNextImageKHR failed, VkResult=" + acquireResult);
             }
             int imageIndex = pImageIndex.get(0);
 
-            // Если этот image уже использует другой frame slot — ждём его fence.
             long imageFence = sync.imageInFlight(imageIndex);
             if (imageFence != VK10.VK_NULL_HANDLE) {
                 VK10.vkWaitForFences(device.logical(), imageFence, true, Long.MAX_VALUE);
@@ -196,12 +219,15 @@ public final class VulkanRenderer {
 
             VK10.vkResetFences(device.logical(), inFlightFence);
 
+            // E.1 — обновление camera + UBO для текущего frame slot'а.
+            updateScene(timeSeconds);
+            uniformBuffers[currentFrame].update(scratchModel, camera, lightDir);
+
             VkCommandBuffer cmd = commandBuffers.buffer(currentFrame);
             VK10.vkResetCommandBuffer(cmd, 0);
 
             record(cmd, imageIndex, timeSeconds, stack);
 
-            // Submit
             LongBuffer pWaitSem    = stack.longs(imageAvail);
             IntBuffer  pWaitStages = stack.ints(VK10.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
             LongBuffer pSignalSem  = stack.longs(renderDone);
@@ -216,7 +242,6 @@ public final class VulkanRenderer {
             VulkanDevice.check(VK10.vkQueueSubmit(device.graphicsQueue(), submit, inFlightFence),
                     "vkQueueSubmit");
 
-            // Present
             LongBuffer pSwap = stack.longs(swapchain.handle());
             IntBuffer  pIdx  = stack.ints(imageIndex);
             VkPresentInfoKHR present = VkPresentInfoKHR.calloc(stack)
@@ -242,24 +267,29 @@ public final class VulkanRenderer {
     }
 
     /**
-     * Stage 2.1b — пересоздаёт swapchain + framebuffers + ресет imagesInFlight.
-     *
-     * <p>Render pass и pipeline переживают recreate (формат attachment'а и
-     * shader stages не меняются; viewport/scissor — динамические). Алгоритм:
-     * <ol>
-     *   <li>{@link GLFW#glfwGetFramebufferSize} — если 0×0 (минимизировано),
-     *       возвращаем {@code false} и пропускаем recreate (try ещё раз
-     *       на следующем кадре);</li>
-     *   <li>{@code vkDeviceWaitIdle} — ждём, пока GPU закончит все
-     *       in-flight операции, чтобы безопасно уничтожить старые ресурсы;</li>
-     *   <li>{@link VulkanSwapchain#recreate} (создаёт новые images + views);</li>
-     *   <li>{@link VulkanFramebuffers#recreate} поверх новых views;</li>
-     *   <li>{@link VulkanFrameSync#resizeImagesInFlight} — на случай если
-     *       imageCount изменился.</li>
-     * </ol>
-     *
-     * <p>Возвращает {@code true} если recreate прошёл успешно,
-     * {@code false} если окно минимизировано (extent=0×0).
+     * E.1 — расчёт model матрицы куба и orbit-камеры в зависимости от
+     * прошедшего времени. На E.2 этот метод исчезнет: камера двигается
+     * через ActionMap в gameplay-слое, а model матрица каждого объекта
+     * приходит из Transform-component'а ECS.
+     */
+    private void updateScene(double timeSeconds) {
+        float t = (float) timeSeconds;
+        // Куб медленно вращается вокруг Y, плюс лёгкое покачивание по X.
+        scratchModel.identity()
+                .rotateY(t * 0.6f)
+                .rotateX((float) Math.sin(t * 0.4) * 0.25f);
+
+        // Орбита камеры вокруг куба: yaw 0.25 rad/sec, pitch 0.15 rad amplitude, distance 3.5
+        if (camera instanceof PerspectiveCamera pc) {
+            float yaw   = t * 0.25f;
+            float pitch = (float) Math.sin(t * 0.3) * 0.15f;
+            pc.setOrbit(yaw, pitch, 3.5f);
+        }
+    }
+
+    /**
+     * Stage 2.1b + E.1 — пересоздаёт swapchain + depth + framebuffers,
+     * обновляет aspect ratio камеры.
      */
     private boolean recreateSwapchainAndFramebuffers() {
         int[] w = new int[1];
@@ -272,8 +302,10 @@ public final class VulkanRenderer {
         VK10.vkDeviceWaitIdle(device.logical());
 
         swapchain.recreate();
-        framebuffers.recreate(swapchain, renderPass);
+        depthBuffer.recreate(swapchain.width(), swapchain.height());
+        framebuffers.recreate(swapchain, renderPass, depthBuffer);
         sync.resizeImagesInFlight(swapchain.imageCount());
+        camera.updateAspect(swapchain.width(), swapchain.height());
 
         swapchainRecreates++;
         System.out.println("[Death:desktop] Vulkan swapchain recreated #" + swapchainRecreates
@@ -287,15 +319,16 @@ public final class VulkanRenderer {
                 .sType(VK10.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
         VulkanDevice.check(VK10.vkBeginCommandBuffer(cmd, bi), "vkBeginCommandBuffer");
 
-        // HSV → RGB по t (полный цикл за 4 секунды) — фон.
+        // E.1 — два clear value: color (HSV-волна по t) + depth (1.0).
         float hue = (float) ((t / 4.0) % 1.0);
-        float[] rgb = hsvToRgb(hue, 0.6f, 0.85f);
-        VkClearValue.Buffer clear = VkClearValue.calloc(1, stack);
+        float[] rgb = hsvToRgb(hue, 0.4f, 0.55f);
+        VkClearValue.Buffer clear = VkClearValue.calloc(2, stack);
         clear.get(0).color()
                 .float32(0, rgb[0])
                 .float32(1, rgb[1])
                 .float32(2, rgb[2])
                 .float32(3, 1.0f);
+        clear.get(1).depthStencil().set(1.0f, 0);
 
         VkRect2D area = VkRect2D.calloc(stack);
         area.offset(VkOffset2D.calloc(stack).set(0, 0));
@@ -310,7 +343,6 @@ public final class VulkanRenderer {
 
         VK10.vkCmdBeginRenderPass(cmd, rpBegin, VK10.VK_SUBPASS_CONTENTS_INLINE);
 
-        // Stage 2.1b — динамические viewport+scissor (pipeline переживает swapchain resize).
         VkViewport.Buffer viewport = VkViewport.calloc(1, stack);
         viewport.get(0)
                 .x(0.0f).y(0.0f)
@@ -325,25 +357,28 @@ public final class VulkanRenderer {
                 .extent(VkExtent2D.calloc(stack).set(swapchain.width(), swapchain.height()));
         VK10.vkCmdSetScissor(cmd, 0, scissor);
 
-        // Stage 2.1b — bind triangle pipeline.
-        VK10.vkCmdBindPipeline(cmd, VK10.VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline.handle());
+        VK10.vkCmdBindPipeline(cmd, VK10.VK_PIPELINE_BIND_POINT_GRAPHICS, cubePipeline.handle());
 
-        // Stage 3.1 — bind descriptor set 0 (combined image sampler).
-        LongBuffer pSet = stack.longs(triangleTexture.descriptorSet());
+        // E.1 — vertex + index buffer'ы куба.
+        LongBuffer pVertexBuffers = stack.longs(cubeMesh.vertexBufferHandle());
+        LongBuffer pVertexOffsets = stack.longs(0L);
+        VK10.vkCmdBindVertexBuffers(cmd, 0, pVertexBuffers, pVertexOffsets);
+        VK10.vkCmdBindIndexBuffer(cmd, cubeMesh.indexBufferHandle(), 0L, cubeMesh.indexType());
+
+        // E.1 — frame-specific descriptor set (UBO + sampler).
+        LongBuffer pSet = stack.longs(frameDescriptorSets[currentFrame]);
         VK10.vkCmdBindDescriptorSets(cmd,
                 VK10.VK_PIPELINE_BIND_POINT_GRAPHICS,
-                trianglePipeline.pipelineLayout(),
+                cubePipeline.pipelineLayout(),
                 0, pSet, null);
 
-        // Рисуем 3 вершины без vertex buffer'а — вершины/UV в шейдере.
-        VK10.vkCmdDraw(cmd, 3, 1, 0, 0);
+        VK10.vkCmdDrawIndexed(cmd, cubeMesh.indexCount(), 1, 0, 0, 0);
 
         VK10.vkCmdEndRenderPass(cmd);
 
         VulkanDevice.check(VK10.vkEndCommandBuffer(cmd), "vkEndCommandBuffer");
     }
 
-    /** Простой HSV→RGB для clear-color циклирования. */
     private static float[] hsvToRgb(float h, float s, float v) {
         float c = v * s;
         float hh = h * 6.0f;
@@ -367,25 +402,30 @@ public final class VulkanRenderer {
 
     /**
      * Освобождает все Vulkan ресурсы в обратном порядке создания.
-     * Перед уничтожением ждёт {@code vkDeviceWaitIdle}, чтобы GPU
-     * закончила все в-полёте операции.
      */
     public void dispose() {
         if (device.logical() != null) {
             VK10.vkDeviceWaitIdle(device.logical());
         }
-        trianglePipeline.dispose();
-        triangleTexture.dispose();
-        textureDescriptors.dispose();
-        triangleFrag.dispose();
-        triangleVert.dispose();
-        sync.dispose();
-        commandBuffers.dispose();
-        framebuffers.dispose();
-        renderPass.dispose();
-        swapchain.dispose();
-        device.dispose();
-        surface.dispose();
+        if (uniformBuffers != null) {
+            for (VulkanUniformBuffer ubo : uniformBuffers) {
+                if (ubo != null) ubo.dispose();
+            }
+        }
+        if (cubeMesh != null)         cubeMesh.dispose();
+        if (cubePipeline != null)     cubePipeline.dispose();
+        if (cubeTexture != null)      cubeTexture.dispose();
+        if (sceneDescriptors != null) sceneDescriptors.dispose();
+        if (cubeFrag != null)         cubeFrag.dispose();
+        if (cubeVert != null)         cubeVert.dispose();
+        if (sync != null)             sync.dispose();
+        if (commandBuffers != null)   commandBuffers.dispose();
+        if (framebuffers != null)     framebuffers.dispose();
+        if (renderPass != null)       renderPass.dispose();
+        if (depthBuffer != null)      depthBuffer.dispose();
+        if (swapchain != null)        swapchain.dispose();
+        if (device != null)           device.dispose();
+        if (surface != null)          surface.dispose();
         System.out.println("[Death:desktop] Vulkan renderer disposed (presented="
                 + presentedFrames + " frames, recreates=" + swapchainRecreates + ")");
     }

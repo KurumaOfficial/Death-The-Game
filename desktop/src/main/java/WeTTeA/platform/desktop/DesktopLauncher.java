@@ -18,6 +18,7 @@ import WeTTeA.api.nativebridge.NativeBridgeInfo;
 import WeTTeA.api.pathfinding.PathGrid;
 import WeTTeA.api.physics.PhysicsBodyHandle;
 import WeTTeA.api.physics.Vec3;
+import WeTTeA.api.render.Camera;
 import WeTTeA.api.platform.PlatformFileSystem;
 import WeTTeA.api.platform.PlatformInfo;
 import WeTTeA.api.render.RenderFrameContext;
@@ -31,6 +32,7 @@ import WeTTeA.core.ecs.EntityWorld;
 import WeTTeA.core.ecs.SystemScheduler;
 import WeTTeA.core.input.InputRouter;
 import WeTTeA.core.input.InputState;
+import WeTTeA.core.render.PerspectiveCamera;
 import WeTTeA.core.scene.Scene;
 import WeTTeA.core.scene.SceneManager;
 import WeTTeA.native_bridge.rust.RustCore;
@@ -114,7 +116,7 @@ public final class DesktopLauncher {
 
     private static final int DEFAULT_WIDTH  = 1280;
     private static final int DEFAULT_HEIGHT = 720;
-    private static final String WINDOW_TITLE = "Death — stage 3.1 textured triangle";
+    private static final String WINDOW_TITLE = "Death — stage E.1 textured cube";
 
     /**
      * Stage 3.1 — дефолтный relative path до JSON asset catalog'а.
@@ -263,7 +265,9 @@ public final class DesktopLauncher {
 
                 if (!noVulkan) {
                     vulkan.create();
-                    renderer = new VulkanRenderer(vulkan.instance(), window.handle(), loader, pngDecoder);
+                    PerspectiveCamera camera = new PerspectiveCamera();
+                    boot.services().register(Camera.class, camera);
+                    renderer = new VulkanRenderer(vulkan.instance(), window.handle(), camera, loader, pngDecoder);
                     System.out.println("[Death:desktop] Vulkan renderer ready: device=" + renderer.deviceName()
                             + " " + renderer.width() + "x" + renderer.height());
 
